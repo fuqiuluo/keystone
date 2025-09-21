@@ -5,17 +5,18 @@
 # upload PyPi package with: $ python setup.py sdist upload -r pypi
 
 import glob
+import logging
 import os
 import shutil
 import subprocess
 import stat
 import sys
 import platform
-from distutils import log
+import sysconfig
 from setuptools import setup
-from distutils.util import get_platform
-from distutils.command.build import build as _build
-from distutils.command.sdist import sdist as _sdist
+from setuptools.command.build import build as _build
+from setuptools.command.build_py import build_py as _build_py
+from setuptools.command.sdist import sdist as _sdist
 from setuptools.command.bdist_egg import bdist_egg as _bdist_egg
 from setuptools.command.develop import develop as _develop
 
@@ -84,8 +85,18 @@ def copy_sources():
         log.info("%s -> %s" % (filename, outpath))
         shutil.copy(filename, outpath)
 
+log = logging.getLogger("keystone-build")
+if not log.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(message)s'))
+    log.addHandler(handler)
+log.setLevel(logging.INFO)
+
+
 def build_libraries():
     cur_dir = os.getcwd()
+    env = os.environ.copy()
+    env.setdefault("PYTHON_EXECUTABLE", sys.executable)
 
     if SYSTEM in ("win32", "cygwin"):
         # if Windows prebuilt library is available, then include it
@@ -105,14 +116,14 @@ def build_libraries():
 
     if SYSTEM == "win32":
         if IS_64BITS:
-            subprocess.call([r'..\nmake-dll.bat'])
+            subprocess.call([r'..\nmake-dll.bat'], env=env)
         else:
-            subprocess.call([r'..\nmake-dll.bat', 'X86'])
+            subprocess.call([r'..\nmake-dll.bat', 'X86'], env=env)
         winobj_dir = os.path.join(BUILD_DIR, 'llvm', 'bin')  
         shutil.copy(os.path.join(winobj_dir, LIBRARY_FILE), LIBS_DIR)
     else:
         cmd = ['sh', '../make-share.sh', 'lib_only']
-        subprocess.call(cmd)
+        subprocess.call(cmd, env=env)
         if SYSTEM == "cygwin":
             obj_dir = os.path.join(BUILD_DIR, 'llvm', 'bin')
         else:
@@ -143,6 +154,13 @@ class build(_build):
         build_libraries()
         return _build.run(self)
 
+
+class build_py(_build_py):
+    def run(self):
+        log.info("Building C++ extensions")
+        build_libraries()
+        return _build_py.run(self)
+
 class develop(_develop):
     def run(self):
         log.info("Building C++ extensions")
@@ -160,7 +178,7 @@ def dummy_src():
 if 'bdist_wheel' in sys.argv and '--plat-name' not in sys.argv:
     idx = sys.argv.index('bdist_wheel') + 1
     sys.argv.insert(idx, '--plat-name')
-    name = get_platform()
+    name = sysconfig.get_platform()
     if 'linux' in name:
         # linux_* platform tags are disallowed because the python ecosystem is fubar
         # linux builds should be built in the centos 5 vm for maximum compatibility
@@ -184,7 +202,7 @@ It offers some unparalleled features:
 - Multi-architecture, with support for Arm, Arm64 (AArch64/Armv8), Ethereum Virtual Machine, Hexagon, Mips, PowerPC, Sparc, SystemZ & X86 (include 16/32/64bit).
 - Clean/simple/lightweight/intuitive architecture-neutral API.
 - Implemented in C/C++ languages, with bindings for Java, Masm, C#, PowerShell, Perl, Python, NodeJS, Ruby, Go, Rust, Haskell, VB6 & OCaml available.
-- Native support for Windows & \*nix (with Mac OSX, Linux, \*BSD & Solaris confirmed).
+- Native support for Windows & *nix (with Mac OSX, Linux, *BSD & Solaris confirmed).
 - Thread-safe by design.
 - Open source - with a dual license.
 
@@ -233,7 +251,7 @@ setup(
         'Programming Language :: Python :: 3',
     ],
     requires=['ctypes'],
-    cmdclass={'build': build, 'develop': develop, 'sdist': sdist, 'bdist_egg': bdist_egg},
+    cmdclass={'build': build, 'build_py': build_py, 'develop': develop, 'sdist': sdist, 'bdist_egg': bdist_egg},
     zip_safe=False,
     include_package_data=True,
     is_pure=False,

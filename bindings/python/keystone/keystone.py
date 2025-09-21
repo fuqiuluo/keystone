@@ -44,8 +44,10 @@ if _found == False:
 
 if _found == False:
     # last try: loading from python lib directory
-    import distutils.sysconfig
-    _lib_path = distutils.sysconfig.get_python_lib()
+    import sysconfig
+    _lib_path = sysconfig.get_path('platlib') or sysconfig.get_path('purelib')
+    if not _lib_path:
+        _lib_path = ''
     for _lib in _all_libs:
         try:
             _lib_file = join(_lib_path, 'keystone', _lib)
