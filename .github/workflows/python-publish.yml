@@ -1,8 +1,12 @@
 name: PyPI 📦 Distribution
+
 on:
   push:
     branches:
       - master
+    tags:
+      - '*' 
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -12,51 +16,68 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-latest]
         platform: [x32, x64]
     steps:
-    - uses: actions/checkout@v4  # Updated to v4
-    - name: Set up Python
-      uses: actions/setup-python@v4  # Updated to v4
-      with:
-        python-version: '3.x'
-    - name: Set up MSVC x86
-      if: matrix.os == 'windows-latest' && matrix.platform == 'x32'
-      uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: x86
-    - name: Set up MSVC x64
-      if: matrix.os == 'windows-latest' && matrix.platform == 'x64'
-      uses: ilammy/msvc-dev-cmd@v1
-    - name: Install dependencies
-      run: |
-        pip install --upgrade pip setuptools wheel
-    - name: Build distribution 📦
-      shell: bash 
-      run: |
-        if [ ${{ matrix.platform }} == 'x32' ] && [ ${{ matrix.os }} == 'windows-latest' ]; then
-             cd bindings/python && python setup.py build -p win32 bdist_wheel -p win32
-        elif [ ${{ matrix.platform }} == 'x32' ] && [ ${{ matrix.os }} == 'ubuntu-latest' ]; then
-             docker run --rm -v `pwd`/:/work dockcross/manylinux1-x86 bash -c "
-               /opt/python/cp36-cp36m/bin/python -m pip install --upgrade pip setuptools wheel &&
-               cd /work/bindings/python &&
-               /opt/python/cp36-cp36m/bin/python setup.py bdist_wheel
-             "
-        elif [ ${{ matrix.platform }} == 'x64' ] && [ ${{ matrix.os }} == 'ubuntu-latest' ]; then
-             docker run --rm -v `pwd`/:/work dockcross/manylinux1-x64 bash -c "
-               /opt/python/cp36-cp36m/bin/python -m pip install --upgrade pip setuptools wheel &&
-               cd /work/bindings/python &&
-               /opt/python/cp36-cp36m/bin/python setup.py bdist_wheel
-             "
-        elif [ ${{ matrix.platform }} == 'x32' ] && [ ${{ matrix.os }} == 'macos-latest' ]; then
-             cd bindings/python && python setup.py sdist
-        else
-             cd bindings/python && python setup.py bdist_wheel
-        fi
-    - uses: actions/upload-artifact@v4
-      with:
-         path: ${{ github.workspace }}/bindings/python/dist/*
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.10 (Windows x86)
+        if: matrix.os == 'windows-latest' && matrix.platform == 'x32'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          architecture: 'x86'
+
+      - name: Set up Python 3.10 (others)
+        if: matrix.os != 'windows-latest' || matrix.platform == 'x64'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Set up MSVC x86
+        if: matrix.os == 'windows-latest' && matrix.platform == 'x32'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Set up MSVC x64
+        if: matrix.os == 'windows-latest' && matrix.platform == 'x64'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip wheel "setuptools<70"
+
+      - name: Build distribution 📦
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if [ "${{ matrix.platform }}" = "x32" ] && [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cd bindings/python && python setup.py build -p win32 bdist_wheel -p win32
+          elif [ "${{ matrix.platform }}" = "x32" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            docker run --rm -v "$PWD":/work quay.io/pypa/manylinux2014_i686 bash -c "
+              /opt/python/cp310-cp310/bin/python -m pip install --upgrade pip wheel 'setuptools<70' &&
+              cd /work/bindings/python &&
+              /opt/python/cp310-cp310/bin/python setup.py bdist_wheel
+            "
+          elif [ "${{ matrix.platform }}" = "x64" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            docker run --rm -v "$PWD":/work quay.io/pypa/manylinux2014_x86_64 bash -c "
+              /opt/python/cp310-cp310/bin/python -m pip install --upgrade pip wheel 'setuptools<70' &&
+              cd /work/bindings/python &&
+              /opt/python/cp310-cp310/bin/python setup.py bdist_wheel
+            "
+          elif [ "${{ matrix.platform }}" = "x32" ] && [ "${{ matrix.os }}" = "macos-latest" ]; then
+            cd bindings/python && python setup.py sdist
+          else
+            cd bindings/python && python setup.py bdist_wheel
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact
+          path: ${{ github.workspace }}/bindings/python/dist/*
+
   publish:
     needs: [build]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags')
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/download-artifact@v4
         with:
