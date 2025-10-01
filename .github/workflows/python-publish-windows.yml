@@ -27,25 +27,49 @@ jobs:
     
     # Fix MSVC constexpr compilation error
     - name: Patch LLVM for MSVC compatibility
-      shell: bash
+      shell: powershell
       run: |
-        # Fix array_lengthof to be constexpr for MSVC
-        find . -name "*.h" -type f -exec sed -i 's/template <typename T, size_t N> size_t array_lengthof(T (&)[N])/template <typename T, size_t N> constexpr size_t array_lengthof(T (\&)[N])/g' {} +
+        Write-Host "Searching for files to patch..."
         
-        # Alternative: Patch the specific file if the above doesn't work
-        RISCV_BACKEND="bindings/python/src/llvm/keystone/lib/Target/RISCV/MCTargetDesc/RISCVAsmBackend.h"
-        if [ -f "$RISCV_BACKEND" ]; then
-          echo "Patching $RISCV_BACKEND"
-          sed -i 's/static const unsigned NumTargetFixupKinds = array_lengthof(Infos);/static constexpr unsigned NumTargetFixupKinds = array_lengthof(Infos);/g' "$RISCV_BACKEND"
-        fi
+        # Find and patch STLExtras.h (where array_lengthof is defined)
+        $stlExtras = Get-ChildItem -Path . -Filter "STLExtras.h" -Recurse -ErrorAction SilentlyContinue | 
+                     Where-Object { $_.FullName -like "*ADT*" } | 
+                     Select-Object -First 1
         
-        # Also patch the ADT/STLExtras.h where array_lengthof is likely defined
-        STLEXTRAS=$(find . -path "*/ADT/STLExtras.h" 2>/dev/null | head -1)
-        if [ -n "$STLEXTRAS" ] && [ -f "$STLEXTRAS" ]; then
-          echo "Patching $STLEXTRAS"
-          sed -i 's/^template <typename T, size_t N>$/template <typename T, size_t N>\nDEPRECATED_CONSTEXPR/g' "$STLEXTRAS"
-          sed -i 's/^size_t array_lengthof(T (&)\[N\])/constexpr size_t array_lengthof(T (\&)[N])/g' "$STLEXTRAS"
-        fi
+        if ($stlExtras) {
+          Write-Host "Found STLExtras.h at: $($stlExtras.FullName)"
+          $content = Get-Content $stlExtras.FullName -Raw
+          
+          # Add constexpr to array_lengthof function
+          $content = $content -replace 'template\s*<typename\s+T,\s*size_t\s+N>\s*size_t\s+array_lengthof\(T\s*\(&\)\[N\]\)', 'template <typename T, size_t N> constexpr size_t array_lengthof(T (&)[N])'
+          
+          Set-Content -Path $stlExtras.FullName -Value $content
+          Write-Host "Patched STLExtras.h"
+        } else {
+          Write-Host "STLExtras.h not found, trying alternative approach..."
+        }
+        
+        # Find and patch RISCVAsmBackend.h
+        $riscvBackend = Get-ChildItem -Path . -Filter "RISCVAsmBackend.h" -Recurse -ErrorAction SilentlyContinue | 
+                        Select-Object -First 1
+        
+        if ($riscvBackend) {
+          Write-Host "Found RISCVAsmBackend.h at: $($riscvBackend.FullName)"
+          $content = Get-Content $riscvBackend.FullName -Raw
+          
+          # Change from static const to static constexpr
+          $content = $content -replace 'static\s+const\s+unsigned\s+NumTargetFixupKinds\s*=\s*array_lengthof\(Infos\);', 'static constexpr unsigned NumTargetFixupKinds = array_lengthof(Infos);'
+          
+          # Alternative: directly calculate the array size
+          $content = $content -replace 'static\s+const\s+unsigned\s+NumTargetFixupKinds\s*=\s*array_lengthof\(Infos\);', 'static constexpr unsigned NumTargetFixupKinds = sizeof(Infos) / sizeof(Infos[0]);'
+          
+          Set-Content -Path $riscvBackend.FullName -Value $content
+          Write-Host "Patched RISCVAsmBackend.h"
+        } else {
+          Write-Host "Warning: RISCVAsmBackend.h not found"
+        }
+        
+        Write-Host "Patching complete!"
     
     - name: Install dependencies
       run: |
