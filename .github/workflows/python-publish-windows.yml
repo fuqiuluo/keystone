@@ -1,4 +1,4 @@
-name: PyPI 📦 Distribution
+name: PyPI 📦 Distribution （Windows）
 on:
   push:
     branches:
@@ -16,60 +16,17 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.x'
-    - name: Set up MSVC x86
+    - name: Set up MSVC x86 (VS 2019)
       if: matrix.platform == 'x32'
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x86
-    - name: Set up MSVC x64
+        toolset: 14.29
+    - name: Set up MSVC x64 (VS 2019)
       if: matrix.platform == 'x64'
       uses: ilammy/msvc-dev-cmd@v1
-    
-    # Fix MSVC constexpr compilation error
-    - name: Patch LLVM for MSVC compatibility
-      shell: powershell
-      run: |
-        Write-Host "Searching for files to patch..."
-        
-        # Find and patch STLExtras.h (where array_lengthof is defined)
-        $stlExtras = Get-ChildItem -Path . -Filter "STLExtras.h" -Recurse -ErrorAction SilentlyContinue | 
-                     Where-Object { $_.FullName -like "*ADT*" } | 
-                     Select-Object -First 1
-        
-        if ($stlExtras) {
-          Write-Host "Found STLExtras.h at: $($stlExtras.FullName)"
-          $content = Get-Content $stlExtras.FullName -Raw
-          
-          # Add constexpr to array_lengthof function
-          $content = $content -replace 'template\s*<typename\s+T,\s*size_t\s+N>\s*size_t\s+array_lengthof\(T\s*\(&\)\[N\]\)', 'template <typename T, size_t N> constexpr size_t array_lengthof(T (&)[N])'
-          
-          Set-Content -Path $stlExtras.FullName -Value $content
-          Write-Host "Patched STLExtras.h"
-        } else {
-          Write-Host "STLExtras.h not found, trying alternative approach..."
-        }
-        
-        # Find and patch RISCVAsmBackend.h
-        $riscvBackend = Get-ChildItem -Path . -Filter "RISCVAsmBackend.h" -Recurse -ErrorAction SilentlyContinue | 
-                        Select-Object -First 1
-        
-        if ($riscvBackend) {
-          Write-Host "Found RISCVAsmBackend.h at: $($riscvBackend.FullName)"
-          $content = Get-Content $riscvBackend.FullName -Raw
-          
-          # Change from static const to static constexpr
-          $content = $content -replace 'static\s+const\s+unsigned\s+NumTargetFixupKinds\s*=\s*array_lengthof\(Infos\);', 'static constexpr unsigned NumTargetFixupKinds = array_lengthof(Infos);'
-          
-          # Alternative: directly calculate the array size
-          $content = $content -replace 'static\s+const\s+unsigned\s+NumTargetFixupKinds\s*=\s*array_lengthof\(Infos\);', 'static constexpr unsigned NumTargetFixupKinds = sizeof(Infos) / sizeof(Infos[0]);'
-          
-          Set-Content -Path $riscvBackend.FullName -Value $content
-          Write-Host "Patched RISCVAsmBackend.h"
-        } else {
-          Write-Host "Warning: RISCVAsmBackend.h not found"
-        }
-        
-        Write-Host "Patching complete!"
+      with:
+        toolset: 14.29
     
     - name: Install dependencies
       run: |
@@ -87,13 +44,3 @@ jobs:
     - uses: actions/upload-artifact@v4
       with:
          path: ${{ github.workspace }}/bindings/python/dist/*
-  
-  publish:
-    needs: [build]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags')
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: artifact
-          path: dist
