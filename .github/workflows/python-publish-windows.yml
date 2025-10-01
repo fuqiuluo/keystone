@@ -43,4 +43,5 @@ jobs:
     
     - uses: actions/upload-artifact@v4
       with:
+         name: keystone-${{ matrix.platform }}-whl
          path: ${{ github.workspace }}/bindings/python/dist/*
