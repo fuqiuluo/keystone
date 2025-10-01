@@ -1,0 +1,75 @@
+name: PyPI 📦 Distribution
+on:
+  push:
+    branches:
+      - master
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x32, x64]
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+    - name: Set up MSVC x86
+      if: matrix.platform == 'x32'
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x86
+    - name: Set up MSVC x64
+      if: matrix.platform == 'x64'
+      uses: ilammy/msvc-dev-cmd@v1
+    
+    # Fix MSVC constexpr compilation error
+    - name: Patch LLVM for MSVC compatibility
+      shell: bash
+      run: |
+        # Fix array_lengthof to be constexpr for MSVC
+        find . -name "*.h" -type f -exec sed -i 's/template <typename T, size_t N> size_t array_lengthof(T (&)[N])/template <typename T, size_t N> constexpr size_t array_lengthof(T (\&)[N])/g' {} +
+        
+        # Alternative: Patch the specific file if the above doesn't work
+        RISCV_BACKEND="bindings/python/src/llvm/keystone/lib/Target/RISCV/MCTargetDesc/RISCVAsmBackend.h"
+        if [ -f "$RISCV_BACKEND" ]; then
+          echo "Patching $RISCV_BACKEND"
+          sed -i 's/static const unsigned NumTargetFixupKinds = array_lengthof(Infos);/static constexpr unsigned NumTargetFixupKinds = array_lengthof(Infos);/g' "$RISCV_BACKEND"
+        fi
+        
+        # Also patch the ADT/STLExtras.h where array_lengthof is likely defined
+        STLEXTRAS=$(find . -path "*/ADT/STLExtras.h" 2>/dev/null | head -1)
+        if [ -n "$STLEXTRAS" ] && [ -f "$STLEXTRAS" ]; then
+          echo "Patching $STLEXTRAS"
+          sed -i 's/^template <typename T, size_t N>$/template <typename T, size_t N>\nDEPRECATED_CONSTEXPR/g' "$STLEXTRAS"
+          sed -i 's/^size_t array_lengthof(T (&)\[N\])/constexpr size_t array_lengthof(T (\&)[N])/g' "$STLEXTRAS"
+        fi
+    
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip setuptools wheel
+    
+    - name: Build distribution 📦
+      shell: bash 
+      run: |
+        if [ ${{ matrix.platform }} == 'x32' ]; then
+             cd bindings/python && python setup.py build -p win32 bdist_wheel -p win32
+        else
+             cd bindings/python && python setup.py bdist_wheel
+        fi
+    
+    - uses: actions/upload-artifact@v4
+      with:
+         path: ${{ github.workspace }}/bindings/python/dist/*
+  
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: artifact
+          path: dist
