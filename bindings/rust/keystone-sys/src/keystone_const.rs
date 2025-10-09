@@ -68,7 +68,8 @@ bitflags! {
 }
 
 bitflags! {
-#[repr(C)]
+    #[repr(C)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
     pub struct Error: c_int {
         const ASM = 128;
         const ASM_ARCH = 512;

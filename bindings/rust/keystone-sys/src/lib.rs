@@ -57,6 +57,6 @@ pub fn error_msg(error: Error) -> String {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.msg())
+        write!(f, "{}", self.clone().msg())
     }
 }
